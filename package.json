@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express-rate-limit": "^8.3.2",
+    "joi": "^18.1.2",
+    "jsonwebtoken": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10"
+  }
+}

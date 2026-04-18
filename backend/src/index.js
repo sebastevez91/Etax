@@ -7,6 +7,9 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const { sequelize } = require('./models');
+const authRoutes = require('./routes/authRoutes'); 
+const tripRoutes = require('./routes/tripRoutes');
+const { registerTripSockets } = require('./sockets/tripSocket');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,16 +26,12 @@ app.get('/', (req, res) => {
   res.json({ app: 'ETax', status: 'running', version: '0.1.0' });
 });
 
-// Socket.io básico
-io.on('connection', (socket) => {
-  console.log(`Cliente conectado: ${socket.id}`);
-  socket.on('disconnect', () => {
-    console.log(`Cliente desconectado: ${socket.id}`);
-  });
-});
+app.use('/api/auth', authRoutes);
+app.use('/api/trips', tripRoutes(io)); 
 
 const PORT = process.env.PORT || 3000;
 
+registerTripSockets(io);
 // Conectar DB y luego levantar servidor
 sequelize.sync({ alter: true })
   .then(() => {
