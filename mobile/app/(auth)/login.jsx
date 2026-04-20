@@ -75,6 +75,12 @@ export default function LoginScreen() {
             : <Text style={styles.buttonText}>Ingresar</Text>
           }
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.replace('/(auth)/register')}>
+          <Text style={{ color: '#94a3b8', textAlign: 'center', marginTop: 16 }}>
+            ¿No tenés cuenta?{' '}
+            <Text style={{ color: '#6366f1', fontWeight: '700' }}>Registrate</Text>
+          </Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );

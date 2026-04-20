@@ -1,190 +1,164 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Alert, ActivityIndicator, RefreshControl
+  StyleSheet, Alert, ActivityIndicator
 } from 'react-native';
-import { useAuth } from '../../context/AuthContext';
+import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { connectSocket, disconnectSocket, getSocket } from '../../services/socket';
 
 export default function DriverScreen() {
-  const { user, logout } = useAuth();
-  const [trips, setTrips] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [accepting, setAccepting] = useState(null);
+  const { token, logout } = useAuth();
+  const router = useRouter();
+  const [trips, setTrips]               = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [activeTrip, setActiveTrip]     = useState(null);
+  const locationIntervalRef             = useRef(null);
 
+  // Conectar socket al montar
+  useEffect(() => {
+    const socket = connectSocket(token);
+
+    return () => {
+      stopEmittingLocation();
+      disconnectSocket();
+    };
+  }, []);
+
+  // Cargar viajes disponibles
   useEffect(() => {
     fetchTrips();
-    // Polling cada 10 segundos para ver viajes nuevos
-    const interval = setInterval(fetchTrips, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   const fetchTrips = async () => {
     try {
-      const res = await api.get('/trips/available');
-      setTrips(res.data.data?.trips || res.data.trips || []);
+      setLoading(true);
+      const res = await api.get('/trips/available', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const available = (res.data.data?.trips || []).filter(t => t.status === 'requested');
+      setTrips(available);
     } catch (err) {
-      console.log('Error fetching trips:', err.response?.data);
+      Alert.alert('Error', 'No se pudieron cargar los viajes.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  const handleAccept = async (tripId) => {
+  const acceptTrip = async (tripId) => {
     try {
-      setAccepting(tripId);
-      await api.patch(`/trips/${tripId}/status`, { status: 'accepted' });
-      Alert.alert('¡Viaje aceptado!', 'Dirigite al punto de origen.');
+      await api.patch(`/trips/${tripId}/status`, 
+        { status: 'accepted' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setActiveTrip(tripId);
+
+      // Unirse a la sala del viaje
+      const socket = getSocket();
+      socket.emit('join_trip_room', { tripId });
+      socket.on('joined_trip_room', ({ tripId: id }) => {
+        console.log('🚗 Driver unido a sala:', id);
+        startEmittingLocation(id);
+      });
+
+      Alert.alert('¡Viaje aceptado!', 'Estás emitiendo tu ubicación en tiempo real.');
       fetchTrips();
     } catch (err) {
-      const msg = err.response?.data?.message || 'Error al aceptar el viaje';
-      Alert.alert('Error', msg);
-    } finally {
-      setAccepting(null);
+      Alert.alert('Error', 'No se pudo aceptar el viaje.');
     }
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchTrips();
+  const startEmittingLocation = async (tripId) => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permiso denegado', 'Necesitamos acceso a tu ubicación.');
+      return;
+    }
+
+    // Emitir cada 3 segundos
+    locationIntervalRef.current = setInterval(async () => {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const socket = getSocket();
+      if (socket?.connected) {
+        socket.emit('driver:location', {
+          tripId,
+          lat: loc.coords.latitude,
+          lng: loc.coords.longitude,
+        });
+        console.log(`📍 Emitiendo ubicación — ${loc.coords.latitude}, ${loc.coords.longitude}`);
+      }
+    }, 3000);
+  };
+
+  const stopEmittingLocation = () => {
+    if (locationIntervalRef.current) {
+      clearInterval(locationIntervalRef.current);
+      locationIntervalRef.current = null;
+    }
   };
 
   const renderTrip = ({ item }) => (
     <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>🚕 Viaje disponible</Text>
-        <Text style={styles.cardTime}>
-          {new Date(item.createdAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-        </Text>
-      </View>
-
-      <View style={styles.route}>
-        <View style={styles.routeRow}>
-          <View style={[styles.dot, { backgroundColor: '#4ade80' }]} />
-          <Text style={styles.routeText} numberOfLines={1}>
-            {item.originAddress || 'Origen'}
-          </Text>
-        </View>
-        <View style={styles.routeLine} />
-        <View style={styles.routeRow}>
-          <View style={[styles.dot, { backgroundColor: '#e94560' }]} />
-          <Text style={styles.routeText} numberOfLines={1}>
-            {item.destinationAddress || 'Destino'}
-          </Text>
-        </View>
-      </View>
-
-      <TouchableOpacity
-        style={[styles.acceptButton, accepting === item.id && styles.buttonDisabled]}
-        onPress={() => handleAccept(item.id)}
-        disabled={accepting === item.id}
-      >
-        {accepting === item.id
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={styles.acceptText}>Aceptar viaje</Text>
-        }
+      <Text style={styles.cardTitle}>Viaje #{item.id.slice(0, 8)}</Text>
+      <Text style={styles.cardText}>📍 Origen: {item.originAddress || `${item.originLat}, ${item.originLng}`}</Text>
+      <Text style={styles.cardText}>🏁 Destino: {item.destinationAddress || `${item.destinationLat}, ${item.destinationLng}`}</Text>
+      <Text style={styles.cardText}>💰 Precio estimado: ${item.estimatedPrice}</Text>
+      <TouchableOpacity style={styles.button} onPress={() => acceptTrip(item.id)}>
+        <Text style={styles.buttonText}>Aceptar viaje</Text>
       </TouchableOpacity>
     </View>
   );
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Hola, {user?.name?.split(' ')[0]} 👋</Text>
-          <Text style={styles.role}>Modo conductor</Text>
-        </View>
-        <TouchableOpacity onPress={logout}>
-          <Text style={styles.logoutText}>Salir</Text>
+        <Text style={styles.title}>Panel del Conductor</Text>
+        <TouchableOpacity onPress={() => { stopEmittingLocation(); logout(); }}>
+          <Text style={styles.logout}>Salir</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Viajes disponibles */}
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#e94560" />
-          <Text style={styles.loadingText}>Buscando viajes...</Text>
+      {activeTrip && (
+        <View style={styles.activeBanner}>
+          <Text style={styles.activeBannerText}>
+            🟢 Viaje activo — emitiendo ubicación cada 3 seg
+          </Text>
         </View>
-      ) : (
-        <FlatList
-          data={trips}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTrip}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor="#e94560"
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>🕐</Text>
-              <Text style={styles.emptyText}>No hay viajes disponibles</Text>
-              <Text style={styles.emptySubtext}>Bajá para actualizar</Text>
-            </View>
-          }
-        />
       )}
+
+      {loading
+        ? <ActivityIndicator color="#6366f1" size="large" style={{ marginTop: 40 }} />
+        : (
+          <FlatList
+            data={trips}
+            keyExtractor={item => item.id}
+            renderItem={renderTrip}
+            ListEmptyComponent={
+              <Text style={styles.empty}>No hay viajes disponibles</Text>
+            }
+            refreshing={loading}
+            onRefresh={fetchTrips}
+          />
+        )
+      }
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 24,
-    paddingTop: 56,
-    backgroundColor: '#16213e',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  greeting: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  role: { color: '#e94560', fontSize: 12, fontWeight: '600', marginTop: 2 },
-  logoutText: { color: '#e94560', fontSize: 14, fontWeight: '600' },
-  list: { padding: 16, gap: 12 },
-  card: {
-    backgroundColor: '#16213e',
-    borderRadius: 16,
-    padding: 16,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  cardTitle: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  cardTime: { color: '#888', fontSize: 12 },
-  route: { marginBottom: 16 },
-  routeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  routeText: { color: '#ddd', fontSize: 14, flex: 1 },
-  routeLine: {
-    width: 2,
-    height: 16,
-    backgroundColor: '#333',
-    marginLeft: 4,
-    marginVertical: 4,
-  },
-  acceptButton: {
-    backgroundColor: '#e94560',
-    borderRadius: 10,
-    padding: 14,
-    alignItems: 'center',
-  },
-  buttonDisabled: { opacity: 0.6 },
-  acceptText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { color: '#888', fontSize: 14 },
-  empty: { alignItems: 'center', marginTop: 80, gap: 8 },
-  emptyIcon: { fontSize: 48 },
-  emptyText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  emptySubtext: { color: '#888', fontSize: 13 },
+  container:        { flex: 1, backgroundColor: '#0f172a' },
+  header:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 56, backgroundColor: '#1e293b' },
+  title:            { fontSize: 20, fontWeight: '800', color: '#fff' },
+  logout:           { color: '#f87171', fontWeight: '600' },
+  activeBanner:     { backgroundColor: '#166534', padding: 12, alignItems: 'center' },
+  activeBannerText: { color: '#86efac', fontWeight: '600', fontSize: 13 },
+  card:             { backgroundColor: '#1e293b', margin: 12, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#334155' },
+  cardTitle:        { color: '#fff', fontWeight: '700', fontSize: 16, marginBottom: 8 },
+  cardText:         { color: '#94a3b8', fontSize: 14, marginBottom: 4 },
+  button:           { backgroundColor: '#6366f1', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 12 },
+  buttonText:       { color: '#fff', fontWeight: '700' },
+  empty:            { color: '#475569', textAlign: 'center', marginTop: 60, fontSize: 16 },
 });
