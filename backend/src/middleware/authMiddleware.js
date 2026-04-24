@@ -1,6 +1,7 @@
 const { verifyToken } = require('../services/jwtService');
+const redis = require('../services/redisClient');
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -12,8 +13,18 @@ const authMiddleware = (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = verifyToken(token);
 
+    // Verificar blacklist en Redis
+    const isBlacklisted = await redis.get(`bl_access:${token}`);
+    if (isBlacklisted) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token inválido',
+        code: 'TOKEN_BLACKLISTED',
+      });
+    }
+
+    const decoded = verifyToken(token);
     req.user = decoded;
     next();
   } catch (error) {
