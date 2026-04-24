@@ -122,7 +122,10 @@ export default function DashboardScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>ETax</Text>
-        <TouchableOpacity onPress={logout}>
+        <TouchableOpacity onPress={async () => {
+            await logout();
+            router.replace('/(auth)/login');
+          }}>
           <Text style={styles.logout}>Salir</Text>
         </TouchableOpacity>
       </View>

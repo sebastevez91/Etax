@@ -116,7 +116,11 @@ export default function DriverScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Panel del Conductor</Text>
-        <TouchableOpacity onPress={() => { stopEmittingLocation(); logout(); }}>
+        <TouchableOpacity onPress={async () => { 
+            stopEmittingLocation(); 
+            await logout();
+            router.replace('/(auth)/login');
+          }}>
           <Text style={styles.logout}>Salir</Text>
         </TouchableOpacity>
       </View>
