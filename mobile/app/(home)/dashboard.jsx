@@ -14,6 +14,7 @@ export default function DashboardScreen() {
   const { token, logout } = useAuth();
   const router = useRouter();
   const mapRef = useRef(null);
+  const activeTripRef = useRef(null); 
 
   const [location, setLocation]           = useState(null);
   const [destination, setDestination]     = useState('');
@@ -25,13 +26,22 @@ export default function DashboardScreen() {
   // Conectar socket al montar
   useEffect(() => {
     const socket = connectSocket(token);
-
+  
     // Escuchar ubicación del conductor
     socket.on('driver:location', ({ lat, lng }) => {
       console.log('📍 Ubicación del conductor recibida:', lat, lng);
       setDriverLocation({ latitude: lat, longitude: lng });
     });
-
+  
+    // Detectar cuando el viaje se completa
+    socket.on('trip:updated', (updatedTrip) => {
+      console.log('🔍 trip:updated recibido:', JSON.stringify(updatedTrip));
+      if (updatedTrip.status === 'completed') {
+        console.log('🔍 navegando con tripId:', updatedTrip.tripId); // 👈
+        router.replace(`/(app)/rate?tripId=${updatedTrip.tripId}&ratedRole=driver`);
+      }
+    });
+  
     return () => {
       disconnectSocket();
     };
@@ -57,13 +67,31 @@ export default function DashboardScreen() {
 
   // Si hay viaje activo al montar, unirse a la sala
   useEffect(() => {
-    if (activeTrip) {
-      const socket = getSocket();
+    if (!activeTrip) return;
+  
+    activeTripRef.current = activeTrip;
+    const socket = getSocket();
+  
+    const joinRoom = () => {
+      console.log('🔍 Uniéndose a sala:', activeTrip.id);
       socket.emit('join_trip_room', { tripId: activeTrip.id });
-      socket.on('joined_trip_room', ({ tripId }) => {
-        console.log('🛻 Pasajero unido a sala:', tripId);
-      });
+    };
+  
+    if (socket?.connected) {
+      joinRoom();
+    } else {
+      // Si todavía no está conectado, esperar el evento connect
+      socket.once('connect', joinRoom);
     }
+  
+    socket.on('joined_trip_room', ({ tripId }) => {
+      console.log('🛻 Pasajero unido a sala:', tripId);
+    });
+  
+    return () => {
+      socket.off('connect', joinRoom);
+      socket.off('joined_trip_room');
+    };
   }, [activeTrip]);
 
   const requestTrip = async () => {
@@ -90,7 +118,7 @@ export default function DashboardScreen() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const trip = res.data.data;
+      const trip = res.data.data.trip;  // 👈 agregar .trip
       setActiveTrip(trip);
       Alert.alert('¡Viaje solicitado!', `Precio estimado: $${trip.estimatedPrice}`);
     } catch (err) {

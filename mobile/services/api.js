@@ -8,6 +8,17 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+// Interceptor de request — agrega el token automáticamente
+api.interceptors.request.use(
+  async (config) => {
+    const token = await AsyncStorage.getItem('token');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 // Interceptor de respuesta — renueva el token automáticamente
 api.interceptors.response.use(

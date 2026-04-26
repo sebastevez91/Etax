@@ -16,11 +16,20 @@ export default function DriverScreen() {
   const [loading, setLoading]           = useState(true);
   const [activeTrip, setActiveTrip]     = useState(null);
   const locationIntervalRef             = useRef(null);
+  const [tripStatus, setTripStatus] = useState(null);
 
   // Conectar socket al montar
   useEffect(() => {
     const socket = connectSocket(token);
-
+  
+    // ✅ NUEVO — detectar cuando el viaje se completa
+    socket.on('trip:updated', (updatedTrip) => {
+      if (updatedTrip.status === 'completed') {
+        stopEmittingLocation();
+        router.replace(`/(app)/rate?tripId=${updatedTrip.tripId}&ratedRole=passenger`); // 👈
+      }
+    });
+  
     return () => {
       stopEmittingLocation();
       disconnectSocket();
@@ -68,6 +77,31 @@ export default function DriverScreen() {
       fetchTrips();
     } catch (err) {
       Alert.alert('Error', 'No se pudo aceptar el viaje.');
+    }
+  };
+
+  const startTrip = async () => {
+    try {
+      await api.patch(`/trips/${activeTrip}/status`,
+        { status: 'in_progress' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      Alert.alert('¡Viaje iniciado!');
+      setTripStatus('in_progress');
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo iniciar el viaje.');
+    }
+  };
+  
+  const completeTrip = async () => {
+    try {
+      await api.patch(`/trips/${activeTrip}/status`,
+        { status: 'completed' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setTripStatus('completed');
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo completar el viaje.');
     }
   };
 
@@ -130,6 +164,16 @@ export default function DriverScreen() {
           <Text style={styles.activeBannerText}>
             🟢 Viaje activo — emitiendo ubicación cada 3 seg
           </Text>
+          {tripStatus !== 'in_progress' && tripStatus !== 'completed' && (
+            <TouchableOpacity style={styles.actionButton} onPress={startTrip}>
+              <Text style={styles.actionButtonText}>▶️ Iniciar viaje</Text>
+            </TouchableOpacity>
+          )}
+          {tripStatus === 'in_progress' && (
+            <TouchableOpacity style={styles.actionButton} onPress={completeTrip}>
+              <Text style={styles.actionButtonText}>✅ Finalizar viaje</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -165,4 +209,6 @@ const styles = StyleSheet.create({
   button:           { backgroundColor: '#6366f1', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 12 },
   buttonText:       { color: '#fff', fontWeight: '700' },
   empty:            { color: '#475569', textAlign: 'center', marginTop: 60, fontSize: 16 },
+  actionButton:     { backgroundColor: '#166534', borderRadius: 8, padding: 10, marginTop: 8, alignItems: 'center', width: '80%' },
+  actionButtonText: { color: '#86efac', fontWeight: '700' },
 });
