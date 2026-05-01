@@ -280,6 +280,55 @@ const rateTrip = async (req, res) => {
   }
 };
 
+const getTripHistory = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const role   = req.user.role;
+
+    // Query params con defaults
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(50, parseInt(req.query.limit) || 10);
+    const offset = (page - 1) * limit;
+    const status = req.query.status; // opcional
+
+    // Construir filtro por rol
+    const where = role === 'driver'
+      ? { driverId: userId }
+      : { passengerId: userId };
+
+    if (status) where.status = status;
+
+    const { count, rows } = await Trip.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+      attributes: [
+        'id', 'status',
+        'estimatedPrice', 'finalPrice',
+        'originLat', 'originLng',
+        'destLat', 'destLng',
+        'acceptedAt', 'startedAt',
+        'completedAt', 'cancelledAt',
+        'createdAt'
+      ],
+    });
+
+    return res.json({
+      trips: rows,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit),
+      },
+    });
+  } catch (err) {
+    console.error('getTripHistory error:', err);
+    return res.status(500).json({ error: 'Error al obtener historial' });
+  }
+};
+
 module.exports = (io) => ({
   createTrip,
   getTrips,
@@ -287,4 +336,5 @@ module.exports = (io) => ({
   getTripById,
   updateTripStatus: updateTripStatusFactory(io),
   rateTrip,
+  getTripHistory,
 });

@@ -194,6 +194,9 @@ export default function DashboardScreen() {
 
       {/* Panel inferior */}
       <View style={styles.panel}>
+        <TouchableOpacity style={styles.historyButton} onPress={() => router.push('/(app)/history')}>
+          <Text style={styles.historyButtonText}>Ver mis viajes</Text>
+        </TouchableOpacity>
         {!activeTrip ? (
           <>
             <TextInput
@@ -258,4 +261,6 @@ const styles = StyleSheet.create({
   cancelButtonText:     { color: '#fca5a5', fontWeight: '700' },
   driverMarker:         { backgroundColor: '#6366f1', borderRadius: 20, padding: 6, borderWidth: 2, borderColor: '#fff' },
   driverMarkerText:     { fontSize: 18 },
+  historyButton:        { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginBottom: 12 },
+  historyButtonText:    { color: '#fff', fontWeight: '700', fontSize: 16 },
 });

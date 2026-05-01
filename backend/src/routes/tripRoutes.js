@@ -11,6 +11,7 @@ module.exports = (io) => {
     getTripById,
     updateTripStatus,
     rateTrip,
+    getTripHistory,
   } = require('../controllers/tripController')(io);
 
   router.use(authMiddleware);
@@ -18,6 +19,7 @@ module.exports = (io) => {
   router.post('/',              validate(createTripSchema),   createTrip);
   router.get('/',                                             getTrips);
   router.get('/available',                                    getAvailableTrips);
+  router.get('/history',                                      getTripHistory);  // 👈 movida acá
   router.get('/:id',                                          getTripById);
   router.patch('/:id/status',  validate(updateStatusSchema),  updateTripStatus);
   router.post('/:id/rating',   validate(ratingSchema),        rateTrip);
