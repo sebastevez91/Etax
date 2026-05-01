@@ -1,5 +1,4 @@
 const { Sequelize } = require('sequelize');
-
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
@@ -12,6 +11,9 @@ const sequelize = new Sequelize(
     port: process.env.DB_PORT,
     dialect: 'postgres',
     logging: false,
+    dialectOptions: process.env.DB_SSL === 'true' ? {
+      ssl: { require: true, rejectUnauthorized: false }
+    } : {},
   }
 );
 
