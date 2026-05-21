@@ -10,6 +10,7 @@ const { sequelize } = require('./models');
 const authRoutes = require('./routes/authRoutes'); 
 const tripRoutes = require('./routes/tripRoutes');
 const { registerTripSockets } = require('./sockets/tripSocket');
+const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -28,6 +29,7 @@ app.get('/', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/trips', tripRoutes(io)); 
+app.use('/api/payments', paymentRoutes);
 
 const PORT = process.env.PORT || 3000;
 
