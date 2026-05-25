@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, TextInput
+  Alert, ActivityIndicator, KeyboardAvoidingView,
+  Platform, Keyboard, ScrollView
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -9,45 +10,42 @@ import { useRouter } from 'expo-router';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { connectSocket, disconnectSocket, getSocket } from '../../services/socket';
+import AddressAutocomplete from '../../components/AddressAutocomplete';
 
 export default function DashboardScreen() {
   const { token, logout } = useAuth();
   const router = useRouter();
   const mapRef = useRef(null);
-  const activeTripRef = useRef(null); 
+  const activeTripRef = useRef(null);
 
   const [location, setLocation]           = useState(null);
   const [destination, setDestination]     = useState('');
   const [destCoords, setDestCoords]       = useState(null);
+  const [selectedPlace, setSelectedPlace] = useState(null);
   const [loading, setLoading]             = useState(false);
   const [activeTrip, setActiveTrip]       = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
+  const [keyboardOpen, setKeyboardOpen]   = useState(false);
 
-  // Conectar socket al montar
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
   useEffect(() => {
     const socket = connectSocket(token);
-  
-    // Escuchar ubicación del conductor
     socket.on('driver:location', ({ lat, lng }) => {
-      console.log('📍 Ubicación del conductor recibida:', lat, lng);
       setDriverLocation({ latitude: lat, longitude: lng });
     });
-  
-    // Detectar cuando el viaje se completa
     socket.on('trip:updated', (updatedTrip) => {
-      console.log('🔍 trip:updated recibido:', JSON.stringify(updatedTrip));
       if (updatedTrip.status === 'completed') {
-        console.log('🔍 navegando con tripId:', updatedTrip.tripId); // 👈
         router.replace(`/(app)/rate?tripId=${updatedTrip.tripId}&ratedRole=driver`);
       }
     });
-  
-    return () => {
-      disconnectSocket();
-    };
+    return () => { disconnectSocket(); };
   }, []);
 
-  // Obtener GPS del pasajero
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -65,29 +63,14 @@ export default function DashboardScreen() {
     })();
   }, []);
 
-  // Si hay viaje activo al montar, unirse a la sala
   useEffect(() => {
     if (!activeTrip) return;
-  
     activeTripRef.current = activeTrip;
     const socket = getSocket();
-  
-    const joinRoom = () => {
-      console.log('🔍 Uniéndose a sala:', activeTrip.id);
-      socket.emit('join_trip_room', { tripId: activeTrip.id });
-    };
-  
-    if (socket?.connected) {
-      joinRoom();
-    } else {
-      // Si todavía no está conectado, esperar el evento connect
-      socket.once('connect', joinRoom);
-    }
-  
-    socket.on('joined_trip_room', ({ tripId }) => {
-      console.log('🛻 Pasajero unido a sala:', tripId);
-    });
-  
+    const joinRoom = () => socket.emit('join_trip_room', { tripId: activeTrip.id });
+    if (socket?.connected) joinRoom();
+    else socket.once('connect', joinRoom);
+    socket.on('joined_trip_room', ({ tripId }) => console.log('🛻 Unido a sala:', tripId));
     return () => {
       socket.off('connect', joinRoom);
       socket.off('joined_trip_room');
@@ -96,29 +79,20 @@ export default function DashboardScreen() {
 
   const requestTrip = async () => {
     if (!location) return Alert.alert('Error', 'Esperando tu ubicación...');
-    if (!destination.trim()) return Alert.alert('Error', 'Ingresá un destino.');
-
-    // Destino simulado: sumamos 0.01 grado al norte como demo
-    const dest = {
-      lat: location.latitude + 0.01,
-      lng: location.longitude + 0.01,
-    };
+    if (!selectedPlace) return Alert.alert('Error', 'Seleccioná un destino de la lista.');
+    const dest = { lat: selectedPlace.lat, lng: selectedPlace.lng };
     setDestCoords({ latitude: dest.lat, longitude: dest.lng });
-
     try {
       setLoading(true);
       const res = await api.post('/trips', {
-        originLat:    location.latitude,
-        originLng:    location.longitude,
-        destLat:      dest.lat,
-        destLng:      dest.lng,
-        originAddress:  'Mi ubicación',
-        destAddress:    destination.trim(),
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
+        originLat:     location.latitude,
+        originLng:     location.longitude,
+        destLat:       dest.lat,
+        destLng:       dest.lng,
+        originAddress: 'Mi ubicación',
+        destAddress:   destination.trim(),
       });
-
-      const trip = res.data.data.trip;  // 👈 agregar .trip
+      const trip = res.data.data.trip;
       setActiveTrip(trip);
       Alert.alert('¡Viaje solicitado!', `Precio estimado: $${trip.estimatedPrice}`);
     } catch (err) {
@@ -131,54 +105,43 @@ export default function DashboardScreen() {
   const cancelTrip = async () => {
     if (!activeTrip) return;
     try {
-      await api.patch(`/trips/${activeTrip.id}/status`,
-        { status: 'cancelled' },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.patch(`/trips/${activeTrip.id}/status`, { status: 'cancelled' });
       setActiveTrip(null);
       setDriverLocation(null);
       setDestCoords(null);
       setDestination('');
+      setSelectedPlace(null);
       Alert.alert('Viaje cancelado.');
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'No se pudo cancelar el viaje.');
     }
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>ETax</Text>
-        <TouchableOpacity onPress={async () => {
-            await logout();
-            router.replace('/(auth)/login');
-          }}>
+        <TouchableOpacity onPress={async () => { await logout(); router.replace('/(auth)/login'); }}>
           <Text style={styles.logout}>Salir</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Mapa */}
+      {/* Mapa — se achica cuando el teclado está abierto */}
       {location ? (
         <MapView
           ref={mapRef}
-          style={styles.map}
+          style={keyboardOpen ? styles.mapSmall : styles.map}
           provider={PROVIDER_DEFAULT}
           initialRegion={location}
           showsUserLocation
         >
-          {/* Marcador destino */}
-          {destCoords && (
-            <Marker coordinate={destCoords} title="Destino" pinColor="#6366f1" />
-          )}
-
-          {/* Marcador conductor en tiempo real */}
+          {destCoords && <Marker coordinate={destCoords} title="Destino" pinColor="#6366f1" />}
           {driverLocation && (
-            <Marker
-              coordinate={driverLocation}
-              title="Tu conductor"
-              description="Ubicación en tiempo real"
-            >
+            <Marker coordinate={driverLocation} title="Tu conductor">
               <View style={styles.driverMarker}>
                 <Text style={styles.driverMarkerText}>🚗</Text>
               </View>
@@ -193,18 +156,30 @@ export default function DashboardScreen() {
       )}
 
       {/* Panel inferior */}
-      <View style={styles.panel}>
+      <ScrollView
+        style={styles.panel}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.panelContent}
+      >
         <TouchableOpacity style={styles.historyButton} onPress={() => router.push('/(app)/history')}>
           <Text style={styles.historyButtonText}>Ver mis viajes</Text>
         </TouchableOpacity>
+
         {!activeTrip ? (
           <>
-            <TextInput
-              style={styles.input}
+            <AddressAutocomplete
               placeholder="¿A dónde vas?"
-              placeholderTextColor="#64748b"
-              value={destination}
-              onChangeText={setDestination}
+              onSelect={(place) => {
+                setSelectedPlace(place);
+                setDestination(place.name);
+                setDestCoords({ latitude: place.lat, longitude: place.lng });
+                mapRef.current?.animateToRegion({
+                  latitude: place.lat,
+                  longitude: place.lng,
+                  latitudeDelta: 0.01,
+                  longitudeDelta: 0.01,
+                }, 800);
+              }}
             />
             <TouchableOpacity
               style={[styles.button, loading && styles.buttonDisabled]}
@@ -222,9 +197,7 @@ export default function DashboardScreen() {
             <Text style={styles.tripStatusTitle}>
               {driverLocation ? '🚗 Conductor en camino' : '⏳ Buscando conductor...'}
             </Text>
-            <Text style={styles.tripStatusSub}>
-              Destino: {activeTrip.destinationAddress}
-            </Text>
+            <Text style={styles.tripStatusSub}>Destino: {activeTrip.destAddress}</Text>
             {driverLocation && (
               <Text style={styles.tripStatusCoords}>
                 📍 {driverLocation.latitude.toFixed(5)}, {driverLocation.longitude.toFixed(5)}
@@ -235,32 +208,33 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container:            { flex: 1, backgroundColor: '#0f172a' },
-  header:               { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 56, backgroundColor: '#1e293b' },
-  title:                { fontSize: 22, fontWeight: '800', color: '#fff' },
-  logout:               { color: '#f87171', fontWeight: '600' },
-  map:                  { flex: 1 },
-  mapPlaceholder:       { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  mapPlaceholderText:   { color: '#64748b', fontSize: 14 },
-  panel:                { backgroundColor: '#1e293b', padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: '#334155' },
-  input:                { backgroundColor: '#0f172a', color: '#fff', borderRadius: 12, padding: 14, fontSize: 16, borderWidth: 1, borderColor: '#334155', marginBottom: 12 },
-  button:               { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center' },
-  buttonDisabled:       { opacity: 0.6 },
-  buttonText:           { color: '#fff', fontWeight: '700', fontSize: 16 },
-  tripStatus:           { alignItems: 'center', gap: 8 },
-  tripStatusTitle:      { color: '#fff', fontWeight: '800', fontSize: 18 },
-  tripStatusSub:        { color: '#94a3b8', fontSize: 14 },
-  tripStatusCoords:     { color: '#6366f1', fontSize: 12, fontFamily: 'monospace' },
-  cancelButton:         { backgroundColor: '#7f1d1d', borderRadius: 12, padding: 14, alignItems: 'center', width: '100%', marginTop: 8 },
-  cancelButtonText:     { color: '#fca5a5', fontWeight: '700' },
-  driverMarker:         { backgroundColor: '#6366f1', borderRadius: 20, padding: 6, borderWidth: 2, borderColor: '#fff' },
-  driverMarkerText:     { fontSize: 18 },
-  historyButton:        { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginBottom: 12 },
-  historyButtonText:    { color: '#fff', fontWeight: '700', fontSize: 16 },
+  container:          { flex: 1, backgroundColor: '#0f172a' },
+  header:             { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 56, backgroundColor: '#1e293b' },
+  title:              { fontSize: 22, fontWeight: '800', color: '#fff' },
+  logout:             { color: '#f87171', fontWeight: '600' },
+  map:                { flex: 1 },
+  mapSmall:           { height: 180 },
+  mapPlaceholder:     { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  mapPlaceholderText: { color: '#64748b', fontSize: 14 },
+  panel:              { backgroundColor: '#1e293b', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: '#334155', maxHeight: '55%' },
+  panelContent:       { padding: 20, paddingBottom: 32 },
+  button:             { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 12 },
+  buttonDisabled:     { opacity: 0.6 },
+  buttonText:         { color: '#fff', fontWeight: '700', fontSize: 16 },
+  tripStatus:         { alignItems: 'center', gap: 8 },
+  tripStatusTitle:    { color: '#fff', fontWeight: '800', fontSize: 18 },
+  tripStatusSub:      { color: '#94a3b8', fontSize: 14 },
+  tripStatusCoords:   { color: '#6366f1', fontSize: 12, fontFamily: 'monospace' },
+  cancelButton:       { backgroundColor: '#7f1d1d', borderRadius: 12, padding: 14, alignItems: 'center', width: '100%', marginTop: 8 },
+  cancelButtonText:   { color: '#fca5a5', fontWeight: '700' },
+  driverMarker:       { backgroundColor: '#6366f1', borderRadius: 20, padding: 6, borderWidth: 2, borderColor: '#fff' },
+  driverMarkerText:   { fontSize: 18 },
+  historyButton:      { backgroundColor: '#334155', borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 12 },
+  historyButtonText:  { color: '#fff', fontWeight: '600', fontSize: 15 },
 });
