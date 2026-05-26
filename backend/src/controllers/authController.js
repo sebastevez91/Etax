@@ -191,4 +191,24 @@ const logout = async (req, res) => {
   }
 };
 
-module.exports = { register, login, me, refresh, logout };
+// POST /api/auth/push-token
+const savePushToken = async (req, res) => {
+  try {
+    const { pushToken } = req.body;
+    if (!pushToken) {
+      return res.status(400).json({ success: false, message: 'Push token requerido' });
+    }
+
+    await User.update(
+      { pushToken },
+      { where: { id: req.user.id } }
+    );
+
+    return res.status(200).json({ success: true, message: 'Push token guardado' });
+  } catch (error) {
+    console.error('[authController.savePushToken]', error);
+    return res.status(500).json({ success: false, message: 'Error al guardar push token' });
+  }
+};
+
+module.exports = { register, login, me, refresh, logout, savePushToken };

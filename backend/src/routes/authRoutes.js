@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 
-const { register, login, me, refresh, logout } = require('../controllers/authController');
+const { register, login, me, refresh, logout, savePushToken } = require('../controllers/authController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { validate, registerSchema, loginSchema } = require('../validations/authValidations');
 
@@ -23,5 +23,6 @@ router.post('/login',    authLimiter, validate(loginSchema), login);
 router.get('/me',        authMiddleware, me);
 router.post('/refresh',  refresh);
 router.post('/logout',   authMiddleware, logout);
+router.post('/push-token', authMiddleware, savePushToken);
 
 module.exports = router;

@@ -36,6 +36,10 @@ const User = sequelize.define('User', {
     type: DataTypes.FLOAT,
     defaultValue: 5.0,
   },
+  pushToken: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
 });
 
 module.exports = User;
