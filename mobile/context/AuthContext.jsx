@@ -65,12 +65,21 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const res = await api.post('/auth/login', { email, password });
     const { token: jwt, refreshToken, user: userData } = res.data.data;
-
+  
     await AsyncStorage.setItem('token', jwt);
     await AsyncStorage.setItem('refreshToken', refreshToken);
     api.defaults.headers.common['Authorization'] = `Bearer ${jwt}`;
     setToken(jwt);
     setUser(userData);
+  
+    // Registrar push token
+    try {
+      const { registerForPushNotifications } = await import('../services/notifications');
+      await registerForPushNotifications();
+    } catch (err) {
+      console.log('⚠️ Push token no registrado:', err.message);
+    }
+  
     return userData;
   };
 

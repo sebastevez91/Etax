@@ -1,5 +1,6 @@
 const { Trip, User } = require('../models');
 const { Op } = require('sequelize');
+const { sendPushNotification } = require('../services/pushNotifications');
 
 // Máquina de estados: qué transiciones son válidas y quién las puede hacer
 const TRANSITIONS = {
@@ -164,7 +165,7 @@ const updateTripStatusFactory = (io) => async (req, res) => {
       trip.driverId   = req.user.id;
       trip.acceptedAt = now;
     }
-    if (status === 'in_progress') trip.startedAt   = now;
+    if (status === 'in_progress') trip.startedAt  = now;
     if (status === 'completed') {
       trip.completedAt = now;
       trip.finalPrice  = trip.estimatedPrice;
@@ -177,13 +178,79 @@ const updateTripStatusFactory = (io) => async (req, res) => {
 
     await trip.save();
 
-    // Emitir a todos en la sala del viaje
+    // Emitir socket
     io.to(`trip:${trip.id}`).emit('trip:updated', {
-      tripId:   trip.id,
-      status:   trip.status,
-      driverId: trip.driverId,
+      tripId:    trip.id,
+      status:    trip.status,
+      driverId:  trip.driverId,
       updatedAt: now.toISOString(),
     });
+
+    // Push notifications según el estado
+    try {
+      const passenger = await User.findByPk(trip.passengerId, { attributes: ['pushToken'] });
+      const driver    = trip.driverId
+        ? await User.findByPk(trip.driverId, { attributes: ['pushToken'] })
+        : null;
+
+      if (status === 'accepted' && passenger?.pushToken) {
+        await sendPushNotification(
+          passenger.pushToken,
+          '🚗 Conductor encontrado',
+          'Un conductor aceptó tu viaje y está en camino.',
+          { tripId: trip.id }
+        );
+      }
+
+      if (status === 'in_progress' && passenger?.pushToken) {
+        await sendPushNotification(
+          passenger.pushToken,
+          '🚀 Viaje iniciado',
+          'Tu viaje ha comenzado. ¡Buen viaje!',
+          { tripId: trip.id }
+        );
+      }
+
+      if (status === 'completed') {
+        if (passenger?.pushToken) {
+          await sendPushNotification(
+            passenger.pushToken,
+            '✅ Viaje completado',
+            `Tu viaje finalizó. Total: $${trip.finalPrice}`,
+            { tripId: trip.id }
+          );
+        }
+        if (driver?.pushToken) {
+          await sendPushNotification(
+            driver.pushToken,
+            '✅ Viaje completado',
+            `Viaje finalizado. Ganaste: $${trip.finalPrice}`,
+            { tripId: trip.id }
+          );
+        }
+      }
+
+      if (status === 'cancelled') {
+        if (passenger?.pushToken) {
+          await sendPushNotification(
+            passenger.pushToken,
+            '❌ Viaje cancelado',
+            'Tu viaje fue cancelado.',
+            { tripId: trip.id }
+          );
+        }
+        if (driver?.pushToken) {
+          await sendPushNotification(
+            driver.pushToken,
+            '❌ Viaje cancelado',
+            'El viaje fue cancelado.',
+            { tripId: trip.id }
+          );
+        }
+      }
+    } catch (notifErr) {
+      console.error('⚠️ Error enviando notificación:', notifErr.message);
+    }
 
     return res.status(200).json({ success: true, data: { trip } });
   } catch (error) {
