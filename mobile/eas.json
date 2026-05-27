@@ -1,7 +1,6 @@
 {
   "cli": {
-    "version": ">= 18.0.3",
-    "appVersionSource": "remote"
+    "version": ">= 19.0.0"
   },
   "build": {
     "development": {
@@ -9,10 +8,18 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      }
     }
   },
   "submit": {
