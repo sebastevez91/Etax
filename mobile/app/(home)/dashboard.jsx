@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   Alert, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Keyboard, ScrollView
+  Platform, Keyboard, ScrollView, Image
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -13,19 +13,19 @@ import { connectSocket, disconnectSocket, getSocket } from '../../services/socke
 import AddressAutocomplete from '../../components/AddressAutocomplete';
 
 export default function DashboardScreen() {
-  const { token, logout } = useAuth();
+  const { token, logout, user } = useAuth();
   const router = useRouter();
   const mapRef = useRef(null);
   const activeTripRef = useRef(null);
 
-  const [location, setLocation]           = useState(null);
-  const [destination, setDestination]     = useState('');
-  const [destCoords, setDestCoords]       = useState(null);
-  const [selectedPlace, setSelectedPlace] = useState(null);
-  const [loading, setLoading]             = useState(false);
-  const [activeTrip, setActiveTrip]       = useState(null);
+  const [location, setLocation]             = useState(null);
+  const [destination, setDestination]       = useState('');
+  const [destCoords, setDestCoords]         = useState(null);
+  const [selectedPlace, setSelectedPlace]   = useState(null);
+  const [loading, setLoading]               = useState(false);
+  const [activeTrip, setActiveTrip]         = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
-  const [keyboardOpen, setKeyboardOpen]   = useState(false);
+  const [keyboardOpen, setKeyboardOpen]     = useState(false);
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
@@ -124,13 +124,28 @@ export default function DashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>ETax</Text>
-        <TouchableOpacity onPress={async () => { await logout(); router.replace('/(auth)/login'); }}>
+        <View style={styles.headerLeft}>
+          <Image
+            source={require('../../assets/sol-ETax.png')}
+            style={styles.headerLogo}
+            resizeMode="contain"
+          />
+          <View>
+            <Text style={styles.title}>ETax</Text>
+            {user?.name && (
+              <Text style={styles.headerSubtitle}>Hola, {user.name.split(' ')[0]} 👋</Text>
+            )}
+          </View>
+        </View>
+        <TouchableOpacity
+          style={styles.logoutBtn}
+          onPress={async () => { await logout(); router.replace('/(auth)/login'); }}
+        >
           <Text style={styles.logout}>Salir</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Mapa — se achica cuando el teclado está abierto */}
+      {/* Mapa */}
       {location ? (
         <MapView
           ref={mapRef}
@@ -139,7 +154,7 @@ export default function DashboardScreen() {
           initialRegion={location}
           showsUserLocation
         >
-          {destCoords && <Marker coordinate={destCoords} title="Destino" pinColor="#6366f1" />}
+          {destCoords && <Marker coordinate={destCoords} title="Destino" pinColor="#f6c500" />}
           {driverLocation && (
             <Marker coordinate={driverLocation} title="Tu conductor">
               <View style={styles.driverMarker}>
@@ -150,7 +165,7 @@ export default function DashboardScreen() {
         </MapView>
       ) : (
         <View style={styles.mapPlaceholder}>
-          <ActivityIndicator color="#6366f1" size="large" />
+          <ActivityIndicator color="#75aadb" size="large" />
           <Text style={styles.mapPlaceholderText}>Obteniendo ubicación...</Text>
         </View>
       )}
@@ -161,14 +176,21 @@ export default function DashboardScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.panelContent}
       >
-        <TouchableOpacity style={styles.historyButton} onPress={() => router.push('/(app)/history')}>
-          <Text style={styles.historyButtonText}>Ver mis viajes</Text>
+        {/* Handle bar */}
+        <View style={styles.handleBar} />
+
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={() => router.push('/(app)/history')}
+        >
+          <Text style={styles.historyButtonText}>📋 Mis viajes</Text>
         </TouchableOpacity>
 
         {!activeTrip ? (
           <>
+            <Text style={styles.panelLabel}>¿A dónde vas hoy?</Text>
             <AddressAutocomplete
-              placeholder="¿A dónde vas?"
+              placeholder="Ingresá tu destino..."
               onSelect={(place) => {
                 setSelectedPlace(place);
                 setDestination(place.name);
@@ -187,22 +209,41 @@ export default function DashboardScreen() {
               disabled={loading}
             >
               {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>Solicitar viaje</Text>
+                ? <ActivityIndicator color="#0a1628" />
+                : <Text style={styles.buttonText}>🚕 Solicitar viaje</Text>
               }
             </TouchableOpacity>
           </>
         ) : (
           <View style={styles.tripStatus}>
-            <Text style={styles.tripStatusTitle}>
-              {driverLocation ? '🚗 Conductor en camino' : '⏳ Buscando conductor...'}
-            </Text>
-            <Text style={styles.tripStatusSub}>Destino: {activeTrip.destAddress}</Text>
-            {driverLocation && (
-              <Text style={styles.tripStatusCoords}>
-                📍 {driverLocation.latitude.toFixed(5)}, {driverLocation.longitude.toFixed(5)}
+            <View style={styles.tripStatusHeader}>
+              <Text style={styles.tripStatusIcon}>
+                {driverLocation ? '🚗' : '⏳'}
               </Text>
+              <Text style={styles.tripStatusTitle}>
+                {driverLocation ? 'Conductor en camino' : 'Buscando conductor...'}
+              </Text>
+            </View>
+
+            <View style={styles.tripInfoBox}>
+              <Text style={styles.tripInfoLabel}>Destino</Text>
+              <Text style={styles.tripInfoValue} numberOfLines={2}>
+                {activeTrip.destAddress}
+              </Text>
+              <Text style={[styles.tripInfoLabel, { marginTop: 8 }]}>Precio estimado</Text>
+              <Text style={styles.tripInfoPrice}>
+                ${activeTrip.estimatedPrice}
+              </Text>
+            </View>
+
+            {driverLocation && (
+              <View style={styles.coordsBox}>
+                <Text style={styles.tripStatusCoords}>
+                  📍 {driverLocation.latitude.toFixed(5)}, {driverLocation.longitude.toFixed(5)}
+                </Text>
+              </View>
             )}
+
             <TouchableOpacity style={styles.cancelButton} onPress={cancelTrip}>
               <Text style={styles.cancelButtonText}>Cancelar viaje</Text>
             </TouchableOpacity>
@@ -214,27 +255,51 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:          { flex: 1, backgroundColor: '#0f172a' },
-  header:             { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 56, backgroundColor: '#1e293b' },
-  title:              { fontSize: 22, fontWeight: '800', color: '#fff' },
-  logout:             { color: '#f87171', fontWeight: '600' },
+  container:          { flex: 1, backgroundColor: '#0d2045' },
+
+  // Header
+  header:             { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 52, paddingBottom: 14, backgroundColor: '#0d2045', borderBottomWidth: 2, borderBottomColor: '#75aadb' },
+  headerLeft:         { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerLogo:         { width: 36, height: 36, borderRadius: 8 },
+  title:              { fontSize: 20, fontWeight: '900', color: '#fff', letterSpacing: 2 },
+  headerSubtitle:     { fontSize: 12, color: '#75aadb', marginTop: 1 },
+  logoutBtn:          { backgroundColor: '#0a1e3d', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#1a3a6e' },
+  logout:             { color: '#75aadb', fontWeight: '600', fontSize: 13 },
+
+  // Mapa
   map:                { flex: 1 },
-  mapSmall:           { height: 180 },
+  mapSmall:           { height: 160 },
   mapPlaceholder:     { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   mapPlaceholderText: { color: '#64748b', fontSize: 14 },
-  panel:              { backgroundColor: '#1e293b', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: '#334155', maxHeight: '55%' },
-  panelContent:       { padding: 20, paddingBottom: 32 },
-  button:             { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 12 },
+
+  // Panel
+  panel:              { backgroundColor: '#0d2045', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 2, borderColor: '#75aadb', maxHeight: '58%' },
+  panelContent:       { padding: 20, paddingBottom: 36 },
+  handleBar:          { width: 40, height: 4, backgroundColor: '#75aadb', borderRadius: 2, alignSelf: 'center', marginBottom: 16, opacity: 0.5 },
+  panelLabel:         { color: '#75aadb', fontSize: 13, fontWeight: '600', marginBottom: 8, letterSpacing: 0.5 },
+
+  // Botones
+  historyButton:      { backgroundColor: '#0a1e3d', borderRadius: 12, padding: 13, alignItems: 'center', marginBottom: 14, borderWidth: 1, borderColor: '#1a3a6e' },
+  historyButtonText:  { color: '#75aadb', fontWeight: '600', fontSize: 14 },
+  button:             { backgroundColor: '#75aadb', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 12 },
   buttonDisabled:     { opacity: 0.6 },
-  buttonText:         { color: '#fff', fontWeight: '700', fontSize: 16 },
-  tripStatus:         { alignItems: 'center', gap: 8 },
-  tripStatusTitle:    { color: '#fff', fontWeight: '800', fontSize: 18 },
-  tripStatusSub:      { color: '#94a3b8', fontSize: 14 },
-  tripStatusCoords:   { color: '#6366f1', fontSize: 12, fontFamily: 'monospace' },
-  cancelButton:       { backgroundColor: '#7f1d1d', borderRadius: 12, padding: 14, alignItems: 'center', width: '100%', marginTop: 8 },
-  cancelButtonText:   { color: '#fca5a5', fontWeight: '700' },
-  driverMarker:       { backgroundColor: '#6366f1', borderRadius: 20, padding: 6, borderWidth: 2, borderColor: '#fff' },
+  buttonText:         { color: '#0a1628', fontWeight: '800', fontSize: 16 },
+
+  // Trip status
+  tripStatus:         { gap: 12 },
+  tripStatusHeader:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tripStatusIcon:     { fontSize: 28 },
+  tripStatusTitle:    { color: '#fff', fontWeight: '800', fontSize: 17, flex: 1 },
+  tripInfoBox:        { backgroundColor: '#0a1e3d', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#1a3a6e' },
+  tripInfoLabel:      { color: '#75aadb', fontSize: 11, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase' },
+  tripInfoValue:      { color: '#fff', fontSize: 14, fontWeight: '500', marginTop: 4 },
+  tripInfoPrice:      { color: '#f6c500', fontSize: 22, fontWeight: '900', marginTop: 4 },
+  coordsBox:          { backgroundColor: '#0a1e3d', borderRadius: 8, padding: 10 },
+  tripStatusCoords:   { color: '#75aadb', fontSize: 12, fontFamily: 'monospace', textAlign: 'center' },
+  cancelButton:       { backgroundColor: '#1a0a0a', borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#7f1d1d' },
+  cancelButtonText:   { color: '#fca5a5', fontWeight: '700', fontSize: 15 },
+
+  // Driver marker
+  driverMarker:       { backgroundColor: '#75aadb', borderRadius: 20, padding: 6, borderWidth: 2, borderColor: '#fff' },
   driverMarkerText:   { fontSize: 18 },
-  historyButton:      { backgroundColor: '#334155', borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 12 },
-  historyButtonText:  { color: '#fff', fontWeight: '600', fontSize: 15 },
 });
