@@ -21,9 +21,19 @@ const estimatePrice = (originLat, originLng, destLat, destLng) => {
     Math.cos((destLat * Math.PI) / 180) *
     Math.sin(dLng / 2) ** 2;
   const distanceKm = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const BASE_FARE = 500;   // en la moneda que uses
-  const PER_KM    = 200;
-  return { distanceKm: +distanceKm.toFixed(2), estimatedPrice: +(BASE_FARE + distanceKm * PER_KM).toFixed(2) };
+
+  // Tarifas realistas para taxi urbano en Argentina
+  const BASE_FARE = 1500;  // bajada de bandera
+  const PER_KM    = 800;   // por km
+  const MAX_KM    = 50;    // máximo 50km para viajes urbanos
+
+  const billableKm = Math.min(distanceKm, MAX_KM);
+  const estimatedPrice = BASE_FARE + billableKm * PER_KM;
+
+  return {
+    distanceKm:     +distanceKm.toFixed(2),
+    estimatedPrice: +estimatedPrice.toFixed(2),
+  };
 };
 
 // POST /api/trips  — solo passengers
