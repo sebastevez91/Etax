@@ -4,13 +4,14 @@ import {
   Alert, ActivityIndicator, KeyboardAvoidingView,
   Platform, Keyboard, ScrollView, Image
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { connectSocket, disconnectSocket, getSocket } from '../../services/socket';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
+import { fetchRoute } from '../../services/mapbox';
 
 export default function DashboardScreen() {
   const { token, logout, user } = useAuth();
@@ -26,6 +27,7 @@ export default function DashboardScreen() {
   const [activeTrip, setActiveTrip]         = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
   const [keyboardOpen, setKeyboardOpen]     = useState(false);
+  const [routeCoords, setRouteCoords]       = useState([]);
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
@@ -43,7 +45,14 @@ export default function DashboardScreen() {
         router.replace(`/(app)/rate?tripId=${updatedTrip.tripId}&ratedRole=driver`);
       }
     });
-    return () => { disconnectSocket(); };
+    socket.on('driver:location', ({ lat, lng }) => {
+      console.log('📍 driver:location recibido:', lat, lng);
+      setDriverLocation({ latitude: lat, longitude: lng });
+    });
+    return () => {
+      socket.off('driver:location');
+      socket.off('trip:updated');
+    };
   }, []);
 
   useEffect(() => {
@@ -111,6 +120,7 @@ export default function DashboardScreen() {
       setDestCoords(null);
       setDestination('');
       setSelectedPlace(null);
+      setRouteCoords([]); // ← agregar esto
       Alert.alert('Viaje cancelado.');
     } catch {
       Alert.alert('Error', 'No se pudo cancelar el viaje.');
@@ -155,12 +165,20 @@ export default function DashboardScreen() {
           showsUserLocation
         >
           {destCoords && <Marker coordinate={destCoords} title="Destino" pinColor="#f6c500" />}
-          {driverLocation && (
+          {driverLocation?.latitude != null && driverLocation?.longitude != null && (
             <Marker coordinate={driverLocation} title="Tu conductor">
               <View style={styles.driverMarker}>
                 <Text style={styles.driverMarkerText}>🚗</Text>
               </View>
             </Marker>
+          )}
+          {routeCoords.length > 0 && (
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor="#75aadb"
+              strokeWidth={4}
+              geodesic
+            />
           )}
         </MapView>
       ) : (
@@ -191,16 +209,47 @@ export default function DashboardScreen() {
             <Text style={styles.panelLabel}>¿A dónde vas hoy?</Text>
             <AddressAutocomplete
               placeholder="Ingresá tu destino..."
-              onSelect={(place) => {
+              onSelect={async (place) => {
+                if (!location) {
+                  Alert.alert('Error', 'Esperando tu ubicación para trazar la ruta...');
+                  return;
+                }
+
                 setSelectedPlace(place);
                 setDestination(place.name);
                 setDestCoords({ latitude: place.lat, longitude: place.lng });
-                mapRef.current?.animateToRegion({
-                  latitude: place.lat,
-                  longitude: place.lng,
-                  latitudeDelta: 0.01,
-                  longitudeDelta: 0.01,
-                }, 800);
+
+                const coords = await fetchRoute(
+                  location.latitude,
+                  location.longitude,
+                  place.lat,
+                  place.lng
+                );
+                setRouteCoords(coords);
+
+                const fitPoints = [
+                  { latitude: location.latitude, longitude: location.longitude },
+                  { latitude: place.lat, longitude: place.lng },
+                  ...coords,
+                ];
+
+                if (coords.length > 0) {
+                  mapRef.current?.fitToCoordinates(fitPoints, {
+                    edgePadding: { top: 80, right: 48, bottom: 280, left: 48 },
+                    animated: true,
+                  });
+                } else {
+                  mapRef.current?.animateToRegion({
+                    latitude: place.lat,
+                    longitude: place.lng,
+                    latitudeDelta: 0.05,
+                    longitudeDelta: 0.05,
+                  }, 800);
+                  Alert.alert(
+                    'Ruta no disponible',
+                    'No pudimos trazar el camino. Verificá el token de Mapbox o probá otro destino.'
+                  );
+                }
               }}
             />
             <TouchableOpacity

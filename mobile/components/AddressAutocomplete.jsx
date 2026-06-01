@@ -34,7 +34,7 @@ export default function AddressAutocomplete({ placeholder, onSelect }) {
     setQuery(place.name);
     setResults([]);
     setShowResults(false);
-    onSelect(place);
+    onSelect?.(place);
   };
 
   return (

@@ -49,3 +49,49 @@ export const reverseGeocode = async (lat, lng) => {
     return `${lat}, ${lng}`;
   }
 };
+
+// Obtener ruta entre dos puntos (Directions API)
+export const fetchRoute = async (originLat, originLng, destLat, destLng) => {
+  if (!MAPBOX_TOKEN) {
+    console.error('Mapbox: configurá EXPO_PUBLIC_MAPBOX_TOKEN en mobile/.env');
+    return [];
+  }
+
+  const coords = [originLat, originLng, destLat, destLng].map(Number);
+  if (coords.some((n) => Number.isNaN(n))) {
+    console.warn('Mapbox directions: coordenadas inválidas');
+    return [];
+  }
+
+  try {
+    const res = await axios.get(
+      `https://api.mapbox.com/directions/v5/mapbox/driving/${originLng},${originLat};${destLng},${destLat}`,
+      {
+        params: {
+          geometries: 'geojson',
+          overview: 'full',
+          access_token: MAPBOX_TOKEN,
+        },
+      }
+    );
+
+    const route = res.data?.routes?.[0];
+    if (!route?.geometry?.coordinates?.length) {
+      console.warn(
+        'Mapbox directions: sin ruta',
+        res.data?.code,
+        res.data?.message
+      );
+      return [];
+    }
+
+    return route.geometry.coordinates.map(([lng, lat]) => ({
+      latitude: lat,
+      longitude: lng,
+    }));
+  } catch (err) {
+    const detail = err.response?.data?.message || err.message;
+    console.error('Mapbox directions error:', detail);
+    return [];
+  }
+};
